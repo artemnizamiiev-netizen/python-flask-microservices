@@ -8,20 +8,20 @@ if os.path.exists(dotenv_path):
 
 
 class Config:
-    SECRET_KEY = "mrfrIMEngCl0pAKqIIBS_g"
+    SECRET_KEY = os.environ["SECRET_KEY"]
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
 
 class DevelopmentConfig(Config):
     ENV = "development"
     DEBUG = True
-    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://cloudacademy:pfm_2020@host.docker.internal:3306/user_dev'
+    SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL"]
     SQLALCHEMY_ECHO = True
 
 
 class ProductionConfig(Config):
     ENV = "production"
     DEBUG = False
-    SQLALCHEMY_DATABASE_URI = 'mysql+pymysql://cloudacademy:pfm_2020@user-db:3306/user'
+    SQLALCHEMY_DATABASE_URI = os.environ["DATABASE_URL"]
     SQLALCHEMY_ECHO = False
 

@@ -2,11 +2,17 @@
 from . import user_api_blueprint
 from .. import db, login_manager
 from ..models import User
+from ..metrics import user_registrations_total, user_login_attempts_total
+
 from flask import make_response, request, jsonify
 from flask_login import current_user, login_user, logout_user, login_required
 
 from passlib.hash import sha256_crypt
 
+
+@user_api_blueprint.route('/healthz', methods=['GET'])
+def healthz():
+    return jsonify({'status': 'ok'}), 200
 
 @login_manager.user_loader
 def load_user(user_id):
@@ -53,6 +59,8 @@ def post_register():
     db.session.add(user)
     db.session.commit()
 
+    user_registrations_total.inc()
+
     response = jsonify({'message': 'User added', 'result': user.to_json()})
 
     return response
@@ -68,8 +76,11 @@ def post_login():
             db.session.commit()
             login_user(user)
 
-            return make_response(jsonify({'message': 'Logged in', 'api_key': user.api_key}))
+            user_login_attempts_total.labels(result="success").inc()
 
+            return make_response(jsonify({'message': 'Logged in', 'api_key': user.api_key}))
+    
+    user_login_attempts_total.labels(result="failure").inc()
     return make_response(jsonify({'message': 'Not logged in'}), 401)
 
 
