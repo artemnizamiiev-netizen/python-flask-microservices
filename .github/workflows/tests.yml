@@ -26,6 +26,18 @@ jobs:
           - name: user-service
             requirements: user-service/requirements.txt
             tests: user-service/tests
+          
+          - name: product-service
+            requirements: product-service/requirements.txt
+            tests: product-service/tests
+
+          - name: order-service
+            requirements: order-service/requirements.txt
+            tests: order-service/tests
+
+          - name: frontend
+            requirements: frontend/requirements.txt
+            tests: frontend/tests
 
     steps:
       - name: Checkout repository
