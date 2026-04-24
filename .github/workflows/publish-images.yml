@@ -1,0 +1,72 @@
+name: Publish Images
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: publish-images-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-central-1
+
+jobs:
+  publish:
+    name: Publish / ${{ matrix.service.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: frontend
+            context: frontend
+            repository: frontend
+
+          - name: user-service
+            context: user-service
+            repository: user-service
+
+          - name: product-service
+            context: product-service
+            repository: product-service
+
+          - name: order-service
+            context: order-service
+            repository: order-service
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_GITHUB_ACTIONS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./${{ matrix.service.context }}
+          file: ./${{ matrix.service.context }}/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ matrix.service.repository }}:sha-${{ github.sha }}
+            ${{ steps.ecr-login.outputs.registry }}/${{ matrix.service.repository }}:latest
+          cache-from: type=gha,scope=${{ matrix.service.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service.name }}
