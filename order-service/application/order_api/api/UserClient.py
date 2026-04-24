@@ -1,4 +1,6 @@
 # application/order_api/api/UserClient.py
+import os
+
 import requests
 
 
@@ -8,7 +10,7 @@ class UserClient:
         headers = {
             'Authorization': api_key
         }
-        response = requests.request(method="GET", url='http://cuser-service:5001/api/user', headers=headers)
+        response = requests.request(method="GET", url=os.environ["USER_SERVICE_URL"] + '/api/user', headers=headers)
         if response.status_code == 401:
             return False
         user = response.json()

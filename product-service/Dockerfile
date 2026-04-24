@@ -1,5 +1,5 @@
 # Dockerfile
-FROM python:3.7
+FROM python:3.7-buster
 COPY requirements.txt /productapp/requirements.txt
 WORKDIR /productapp
 RUN pip install -r requirements.txt

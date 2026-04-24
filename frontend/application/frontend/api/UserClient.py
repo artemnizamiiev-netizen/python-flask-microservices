@@ -1,7 +1,11 @@
 # application/frontend/api/UserClient.py
+import os
+
 import requests
 from flask import session, request
 
+
+user_service_url = os.environ["USER_SERVICE_URL"]
 
 class UserClient:
     @staticmethod
@@ -11,7 +15,7 @@ class UserClient:
             'username': form.username.data,
             'password': form.password.data
         }
-        url = 'http://cuser-service:5001/api/user/login'
+        url = user_service_url + '/api/user/login'
         response = requests.request("POST", url=url, data=payload)
         if response:
             d = response.json()
@@ -26,7 +30,7 @@ class UserClient:
         headers = {
             'Authorization': 'Basic ' + session['user_api_key']
         }
-        url = 'http://cuser-service:5001/api/user'
+        url = user_service_url + '/api/user'
         response = requests.request(method="GET", url=url, headers=headers)
         user = response.json()
         return user
@@ -41,7 +45,7 @@ class UserClient:
             'last_name': form.last_name.data,
             'username': form.username.data
         }
-        url = 'http://cuser-service:5001/api/user/create'
+        url = user_service_url + '/api/user/create'
         response = requests.request("POST", url=url, data=payload)
         if response:
             user = response.json()
@@ -49,7 +53,7 @@ class UserClient:
 
     @staticmethod
     def does_exist(username):
-        url = 'http://cuser-service:5001/api/user/' + username + '/exists'
+        url = user_service_url + '/api/user/' + username + '/exists'
         response = requests.request("GET", url=url)
         return response.status_code == 200
 

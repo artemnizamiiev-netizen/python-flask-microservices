@@ -4,6 +4,7 @@ import os
 from flask import Flask
 from flask_bootstrap import Bootstrap
 from flask_login import LoginManager
+from prometheus_flask_exporter import PrometheusMetrics
 
 login_manager = LoginManager()
 bootstrap = Bootstrap()
@@ -13,6 +14,8 @@ UPLOAD_FOLDER = 'application/static/images'
 def create_app():
     app = Flask(__name__, static_folder='static')
     app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+    PrometheusMetrics(app, group_by="url_rule")
 
     environment_configuration = os.environ['CONFIGURATION_SETUP']
     app.config.from_object(environment_configuration)

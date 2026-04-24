@@ -1,7 +1,11 @@
 # application/frontend/api/OrderClient.py
+import os
+
 from flask import session
 import requests
 
+
+order_service_url = os.environ["ORDER_SERVICE_URL"]
 
 class OrderClient:
     @staticmethod
@@ -9,7 +13,7 @@ class OrderClient:
         headers = {
             'Authorization': 'Basic ' + session['user_api_key']
         }
-        url = 'http://corder-service:5003/api/order'
+        url = order_service_url + '/api/order'
         response = requests.request(method="GET", url=url, headers=headers)
         order = response.json()
         return order
@@ -20,7 +24,7 @@ class OrderClient:
             'product_id': product_id,
             'qty': qty
         }
-        url = 'http://corder-service:5003/api/order/add-item'
+        url = order_service_url + '/api/order/add-item'
 
         headers = {
             'Authorization': 'Basic ' + session['user_api_key']
@@ -32,7 +36,7 @@ class OrderClient:
 
     @staticmethod
     def post_checkout():
-        url = 'http://corder-service:5003/api/order/checkout'
+        url = order_service_url + '/api/order/checkout'
 
         headers = {
             'Authorization': 'Basic ' + session['user_api_key']
