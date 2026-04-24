@@ -6,6 +6,9 @@ from flask_migrate import Migrate
 app = create_app()
 migrate = Migrate(app, db)
 
+with app.app_context():
+    db.create_all()
+
 from flask import g
 from flask.sessions import SecureCookieSessionInterface
 from flask_login import user_loaded_from_header

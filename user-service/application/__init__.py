@@ -4,6 +4,7 @@ import os
 from flask import Flask
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
+from prometheus_flask_exporter import PrometheusMetrics
 
 db = SQLAlchemy()
 login_manager = LoginManager()
@@ -13,6 +14,8 @@ def create_app():
     app = Flask(__name__)
     environment_configuration = os.environ['CONFIGURATION_SETUP']
     app.config.from_object(environment_configuration)
+
+    PrometheusMetrics(app, group_by="url_rule")
 
     db.init_app(app)
     login_manager.init_app(app)
