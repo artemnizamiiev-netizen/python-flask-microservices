@@ -2,7 +2,13 @@
 from . import product_api_blueprint
 from .. import db
 from ..models import Product
+from ..metrics import products_created_total, products_lookup_total
 from flask import jsonify, request
+
+
+@product_api_blueprint.route('/healthz', methods=['GET'])
+def healthz():
+    return jsonify({'status': 'ok'}), 200
 
 
 @product_api_blueprint.route('/api/products', methods=['GET'])
@@ -31,6 +37,8 @@ def post_create():
     db.session.add(item)
     db.session.commit()
 
+    products_created_total.inc()
+
     response = jsonify({'message': 'Product added', 'product': item.to_json()})
     return response
 
@@ -40,6 +48,8 @@ def product(slug):
     item = Product.query.filter_by(slug=slug).first()
     if item is not None:
         response = jsonify({'result': item.to_json()})
+        products_lookup_total.labels(result="found").inc()
     else:
         response = jsonify({'message': 'Cannot find product'}), 404
+        products_lookup_total.labels(result="not_found").inc()
     return response

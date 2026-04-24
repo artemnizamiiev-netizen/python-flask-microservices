@@ -9,8 +9,8 @@ if os.path.exists(dotenv_path):
 
 
 class Config:
-    SECRET_KEY = 'y2BH8xD9pyZhDT5qkyZZRgjcJCMHdQ'
-    WTF_CSRF_SECRET_KEY = 'VyOyqv5Fm3Hs3qB1AmNeeuvPpdRqTJbTs5wKvWCS'
+    SECRET_KEY = os.environ["SECRET_KEY"]
+    WTF_CSRF_SECRET_KEY = os.environ["WTF_CSRF_SECRET_KEY"]
 
 
 class DevelopmentConfig(Config):
