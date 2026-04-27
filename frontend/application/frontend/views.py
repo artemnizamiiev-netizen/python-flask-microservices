@@ -6,9 +6,14 @@ from .. import login_manager
 from .api.UserClient import UserClient
 from .api.ProductClient import ProductClient
 from .api.OrderClient import OrderClient
-from flask import render_template, session, redirect, url_for, flash, request
+from flask import render_template, session, redirect, url_for, flash, request, jsonify
 
 from flask_login import current_user
+
+
+@frontend_blueprint.route('/healthz', methods=['GET'])
+def healthz():
+    return jsonify({'status': 'ok'}), 200
 
 
 @login_manager.user_loader

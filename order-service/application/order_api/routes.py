@@ -3,7 +3,13 @@ from flask import jsonify, request, make_response
 from . import order_api_blueprint
 from .. import db
 from ..models import Order, OrderItem
+from ..metrics import order_items_added_total, checkout_attempts_total
 from .api.UserClient import UserClient
+
+
+@order_api_blueprint.route('/healthz', methods=['GET'])
+def healthz():
+    return jsonify({'status': 'ok'}), 200
 
 
 @order_api_blueprint.route('/api/orders', methods=['GET'])
@@ -52,6 +58,7 @@ def order_add_item():
 
     db.session.add(known_order)
     db.session.commit()
+    order_items_added_total.inc()
     response = jsonify({'result': known_order.to_json()})
     return response
 
@@ -82,6 +89,7 @@ def checkout():
     response = UserClient.get_user(api_key)
 
     if not response:
+        checkout_attempts_total.labels(result="unauthorized").inc()
         return make_response(jsonify({'message': 'Not logged in'}), 401)
 
     user = response['result']
@@ -93,4 +101,5 @@ def checkout():
     db.session.commit()
 
     response = jsonify({'result': order_model.to_json()})
+    checkout_attempts_total.labels(result="success").inc()
     return response
