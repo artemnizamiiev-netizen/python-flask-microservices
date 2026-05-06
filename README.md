@@ -1,134 +1,121 @@
-# Mastering Microservices with Python, Flask, and Docker
-Interested in microservices, and how they can be used for increased agility and scalability?
+# python-flask-microservices
 
-Microservices is an architectural style and pattern that structures an application as a collection of coherent services. Each service is highly maintainable, testable, loosely coupled, independently deployable, and precisely focused.
+Application source code for the demo storefront and its three backend services.
 
-This [course](https://cloudacademy.com/course/mastering-microservices-with-python-flask-docker-1118) takes a hands-on look at microservices using Python, Flask, and Docker. You'll learn how Flask can be used to quickly prototype and build microservices, as well as how to use Docker to host and deploy them.
+## What lives here
 
-:metal:
+This repository contains four Flask applications:
 
-## Project Structure
-The Python Flask based microservices project is composed of the following 4 projects: 
-* [frontend](https://github.com/cloudacademy/python-flask-microservices/tree/master/frontend)
-* [user-service](https://github.com/cloudacademy/python-flask-microservices/tree/master/user-service)
-* [product-service](https://github.com/cloudacademy/python-flask-microservices/tree/master/product-service)
-* [order-service](https://github.com/cloudacademy/python-flask-microservices/tree/master/order-service)
+| Service | Path | Default port | Responsibility |
+| --- | --- | ---: | --- |
+| Frontend | `frontend` | `5000` | Server-rendered web UI, calls backend APIs |
+| User service | `user-service` | `5001` | User registration, login, API key auth |
+| Product service | `product-service` | `5002` | Product catalog |
+| Order service | `order-service` | `5003` | Basket and checkout flow |
 
-## Microservices Setup and Configuration
-To launch the end-to-end microservices application perform the following:
+Each service is packaged as its own Docker image and is deployed independently in Kubernetes.
 
-### Step 1.
-Navigate into the [frontend](https://github.com/cloudacademy/python-flask-microservices/tree/master/frontend) directory, and confirm the presence of the ```docker-compose.deploy.yml``` file:
+## Repository structure
+
+Each service follows roughly the same shape:
+
+```text
+<service>/
+  application/
+    ... Flask app package, routes, models, templates, API clients
+  tests/
+  Dockerfile
+  docker-compose.yml
+  requirements.txt
+  run.py
 ```
+
+The frontend also contains `frontend/docker-compose.yml`, which is the easiest way to bring up the whole stack locally because it wires the three backend services and their MySQL containers together.
+
+## How the services talk to each other
+
+- `frontend` calls:
+  - `user-service`
+  - `product-service`
+  - `order-service`
+- `order-service` also calls `user-service`
+
+In Kubernetes these service-to-service calls are configured through environment variables and in-cluster DNS names. In local Docker runs they share the same Docker network.
+
+## Local development paths
+
+### Option 1: Run the full stack with Docker Compose
+
+From the frontend directory:
+
+```bash
 cd frontend
-ls -la
+docker network create micro_network || true
+docker compose up --build
 ```
 
-### Step 1.
-Create a new Docker network and name it ```micro_network```:
-```
-docker network create micro_network
+What you get:
+
+- frontend on `http://localhost:5000`
+- user-service on `http://localhost:5001`
+- product-service on `http://localhost:5002`
+- order-service on `http://localhost:5003`
+- three MySQL containers on ports `32000`, `32001`, `32002`
+
+This is the best option when you want to test the end-to-end user flow locally.
+
+### Option 2: Run a single service in isolation
+
+Every service directory has its own `docker-compose.yml` and `Dockerfile`.
+
+Example for `user-service`:
+
+```bash
+cd user-service
+docker network create micro_network || true
+docker compose up --build
 ```
 
-### Step 2.
-Build each of the microservice Docker container images:
-```
-docker-compose -f docker-compose.deploy.yml build
-docker images
+Use this path when you only need to work on one backend service and do not need the full storefront flow.
+
+## Typical local smoke flow
+
+1. Start the full stack from `frontend/`.
+2. Seed a couple of products:
+
+```bash
+curl -i -d "name=prod1&slug=prod1&image=product1.jpg&price=100" -X POST http://localhost:5002/api/product/create
+curl -i -d "name=prod2&slug=prod2&image=product2.jpg&price=200" -X POST http://localhost:5002/api/product/create
 ```
 
-### Step 3.
-Launch the microservice environment:
-```
-docker-compose -f docker-compose.deploy.yml build
-docker ps -a
-```
+3. Open:
 
-### Step 4.
-Prepare each microservice mysql database:
-```
-for service in corder-service cproduct-service cuser-service;
-do 
- docker exec -it $service flask db init
- docker exec -it $service flask db migrate
- docker exec -it $service flask db upgrade
-done
-```
-
-### Step 5.
-Populate the product database:
-```
-curl -i -d "name=prod1&slug=prod1&image=product1.jpg&price=100" -X POST localhost:5002/api/product/create
-curl -i -d "name=prod2&slug=prod2&image=product2.jpg&price=200" -X POST localhost:5002/api/product/create
-```
-
-### Step 6.
-Using your workstations browser - navigate to the following URL and register:
-```
+```text
+http://localhost:5000/
 http://localhost:5000/register
-```
-
-### Step 7.
-Back within your terminal, use a mysql client to confirm that a new user registration record was created:
-```
-mysql --host=127.0.0.1 --port=32000 --user=cloudacademy --password=pfm_2020
-mysql> show databases;
-mysql> use user;
-mysql> show tables;
-mysql> select * from user;
-mysql> exit
-```
-
-### Step 8.
-Using your workstations browser - login, and add products into your cart, and then finally click the checkout option
-```
 http://localhost:5000/login
 ```
 
-### Step 9.
-Back within your terminal, use a mysql client to confirm that a new order has been created:
-```
-mysql --host=127.0.0.1 --port=32002 --user=cloudacademy --password=pfm_2020
-mysql> show databases;
-mysql> use order;
-mysql> show tables;
-mysql> select * from order.order;
-mysql> select * from order.order_item;
-mysql> exit
+## Tests
+
+Each service keeps its own test suite under `tests/`.
+
+Typical workflow:
+
+```bash
+cd user-service
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+pytest
 ```
 
-## Microservices Teardown
-Perform the following steps to teardown the microservices environment:
+Repeat the same pattern for `frontend`, `product-service`, or `order-service`.
 
-### Step 1.
-Create a new Docker network and name it ```micro_network```:
-```
-for container in cuser-service cproduct-service corder-service cproduct_dbase cfrontend-app cuser_dbase corder_dbase;
-do
- docker stop $container
- docker rm $container
-done
-```
+## How this repo fits the rest of the workspace
 
-### Step 2.
-Remove the container volumes
-```
-for vol in frontend_orderdb_vol frontend_productdb_vol frontend_userdb_vol;
-do
- docker volume rm $vol
-done
-```
+- `python-flask-microservices-gitops` deploys these services to Kubernetes
+- `python-flask-microservices-infra` builds the AWS and EKS environment they run in
+- `python-flask-microservices-terraform-modules` contains the reusable infra modules used by Terragrunt
 
-### Step 3.
-Remove the container network
-```
-docker network rm micro_network
-```
-
-## Python extensions reference
-The following Python extensions were used:
-
-* Flask-SQLAlchemy: https://flask-sqlalchemy.palletsprojects.com/en/2.x/
-* Flask-Login: https://flask-login.readthedocs.io/en/latest/
-* Flask-Migrate: https://github.com/miguelgrinberg/flask-migrate/
-* Requests: https://requests.readthedocs.io/en/master/
+If you change application behavior here, the usual next step is to build and push a new image, then update the image tag in the GitOps repo.
