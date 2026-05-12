@@ -52,7 +52,7 @@ pipeline {
     AWS_ECR_CREDENTIALS_ID = 'aws-jenkins-ecr'
     AWS_SESSION_TOKEN_CREDENTIALS_ID = 'aws-jenkins-session-token'
     GITOPS_REPO_URL = 'https://github.com/artemnizamiiev-netizen/python-flask-microservices-gitops.git'
-    GITOPS_TOKEN_CREDENTIALS_ID = 'github-gitops-token'
+    GITHUB_REPO_CREDENTIALS_ID = 'github-repo-token'
     DOCKER_BUILDKIT = '0'
   }
 
@@ -177,17 +177,18 @@ pipeline {
       }
       steps {
         withCredentials([
-          string(
-            credentialsId: env.GITOPS_TOKEN_CREDENTIALS_ID,
-            variable: 'GITOPS_TOKEN'
+          usernamePassword(
+            credentialsId: env.GITHUB_REPO_CREDENTIALS_ID,
+            usernameVariable: 'GIT_USERNAME',
+            passwordVariable: 'GIT_PASSWORD'
           )
         ]) {
           sh '''
             cat > "$WORKSPACE/.git-askpass.sh" <<'EOF'
 #!/bin/sh
 case "$1" in
-  *Username*) echo "x-access-token" ;;
-  *Password*) echo "$GITOPS_TOKEN" ;;
+  *Username*) echo "$GIT_USERNAME" ;;
+  *Password*) echo "$GIT_PASSWORD" ;;
   *) echo "" ;;
 esac
 EOF
