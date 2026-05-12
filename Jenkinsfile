@@ -42,6 +42,7 @@ pipeline {
     string(name: 'AWS_ACCOUNT_ID', defaultValue: '212351100079', description: 'AWS account ID that owns the ECR repositories.')
     choice(name: 'DEPLOY_ENV', choices: ['jenkins-kind'], description: 'GitOps environment that Jenkins updates after pushing images.')
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag. Empty value becomes sha-<full git sha>.')
+    booleanParam(name: 'USE_AWS_SESSION_TOKEN', defaultValue: false, description: 'Enable when AWS credentials include an AWS_SESSION_TOKEN.')
     booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'Push built Docker images to ECR.')
     booleanParam(name: 'UPDATE_GITOPS', defaultValue: true, description: 'Commit the new image repositories and tags to the GitOps repository.')
   }
@@ -49,6 +50,7 @@ pipeline {
   environment {
     AWS_REGION = 'eu-central-1'
     AWS_ECR_CREDENTIALS_ID = 'aws-jenkins-ecr'
+    AWS_SESSION_TOKEN_CREDENTIALS_ID = 'aws-jenkins-session-token'
     GITOPS_REPO_URL = 'git@github.com:artemnizamiiev-netizen/python-flask-microservices-gitops.git'
     GITOPS_SSH_CREDENTIALS_ID = 'github-gitops-ssh'
     DOCKER_BUILDKIT = '1'
@@ -99,20 +101,42 @@ pipeline {
         expression { return params.PUSH_IMAGES }
       }
       steps {
-        withCredentials([
-          usernamePassword(
-            credentialsId: env.AWS_ECR_CREDENTIALS_ID,
-            usernameVariable: 'AWS_ACCESS_KEY_ID',
-            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-          )
-        ]) {
-          sh(
-            label: 'aws ecr login',
-            script: '''
-              aws ecr get-login-password --region "$AWS_REGION" \
-                | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-            '''
-          )
+        script {
+          def loginToEcr = {
+            sh(
+              label: 'aws ecr login',
+              script: '''
+                aws ecr get-login-password --region "$AWS_REGION" \
+                  | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+              '''
+            )
+          }
+
+          if (params.USE_AWS_SESSION_TOKEN) {
+            withCredentials([
+              usernamePassword(
+                credentialsId: env.AWS_ECR_CREDENTIALS_ID,
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+              ),
+              string(
+                credentialsId: env.AWS_SESSION_TOKEN_CREDENTIALS_ID,
+                variable: 'AWS_SESSION_TOKEN'
+              )
+            ]) {
+              loginToEcr()
+            }
+          } else {
+            withCredentials([
+              usernamePassword(
+                credentialsId: env.AWS_ECR_CREDENTIALS_ID,
+                usernameVariable: 'AWS_ACCESS_KEY_ID',
+                passwordVariable: 'AWS_SECRET_ACCESS_KEY'
+              )
+            ]) {
+              loginToEcr()
+            }
+          }
         }
       }
     }
