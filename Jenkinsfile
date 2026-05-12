@@ -51,8 +51,8 @@ pipeline {
     AWS_REGION = 'eu-central-1'
     AWS_ECR_CREDENTIALS_ID = 'aws-jenkins-ecr'
     AWS_SESSION_TOKEN_CREDENTIALS_ID = 'aws-jenkins-session-token'
-    GITOPS_REPO_URL = 'git@github.com:artemnizamiiev-netizen/python-flask-microservices-gitops.git'
-    GITOPS_SSH_CREDENTIALS_ID = 'github-gitops-ssh'
+    GITOPS_REPO_URL = 'https://github.com/artemnizamiiev-netizen/python-flask-microservices-gitops.git'
+    GITOPS_TOKEN_CREDENTIALS_ID = 'github-gitops-token'
     DOCKER_BUILDKIT = '0'
   }
 
@@ -176,11 +176,29 @@ pipeline {
         expression { return params.PUSH_IMAGES && params.UPDATE_GITOPS }
       }
       steps {
-        sshagent(credentials: [env.GITOPS_SSH_CREDENTIALS_ID]) {
+        withCredentials([
+          string(
+            credentialsId: env.GITOPS_TOKEN_CREDENTIALS_ID,
+            variable: 'GITOPS_TOKEN'
+          )
+        ]) {
+          sh '''
+            cat > "$WORKSPACE/.git-askpass.sh" <<'EOF'
+#!/bin/sh
+case "$1" in
+  *Username*) echo "x-access-token" ;;
+  *Password*) echo "$GITOPS_TOKEN" ;;
+  *) echo "" ;;
+esac
+EOF
+            chmod 700 "$WORKSPACE/.git-askpass.sh"
+          '''
+
           dir('gitops') {
             deleteDir()
             sh '''
-              GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" \
+              GIT_ASKPASS="$WORKSPACE/.git-askpass.sh" \
+                GIT_TERMINAL_PROMPT=0 \
                 git clone --branch main "$GITOPS_REPO_URL" .
             '''
           }
@@ -207,8 +225,12 @@ pipeline {
                 echo "No GitOps changes to commit."
               else
                 git commit -m "chore(${DEPLOY_ENV}): deploy ${SHORT_SHA}"
-                GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new" git push origin HEAD:main
+                GIT_ASKPASS="$WORKSPACE/.git-askpass.sh" \
+                  GIT_TERMINAL_PROMPT=0 \
+                  git push origin HEAD:main
               fi
+
+              rm -f "$WORKSPACE/.git-askpass.sh"
             '''
           }
         }
