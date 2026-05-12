@@ -53,7 +53,7 @@ pipeline {
     AWS_SESSION_TOKEN_CREDENTIALS_ID = 'aws-jenkins-session-token'
     GITOPS_REPO_URL = 'git@github.com:artemnizamiiev-netizen/python-flask-microservices-gitops.git'
     GITOPS_SSH_CREDENTIALS_ID = 'github-gitops-ssh'
-    DOCKER_BUILDKIT = '1'
+    DOCKER_BUILDKIT = '0'
   }
 
   stages {
