@@ -4,33 +4,37 @@ def SERVICES = [
     context: 'frontend',
     repository: 'frontend',
     requirements: 'frontend/requirements.txt',
-    tests: 'frontend/tests'
+    tests: 'frontend/tests',
+    helmChart: 'charts/frontend'
   ],
   [
     name: 'user-service',
     context: 'user-service',
     repository: 'user-service',
     requirements: 'user-service/requirements.txt',
-    tests: 'user-service/tests'
+    tests: 'user-service/tests',
+    helmChart: 'charts/common-service'
   ],
   [
     name: 'product-service',
     context: 'product-service',
     repository: 'product-service',
     requirements: 'product-service/requirements.txt',
-    tests: 'product-service/tests'
+    tests: 'product-service/tests',
+    helmChart: 'charts/common-service'
   ],
   [
     name: 'order-service',
     context: 'order-service',
     repository: 'order-service',
     requirements: 'order-service/requirements.txt',
-    tests: 'order-service/tests'
+    tests: 'order-service/tests',
+    helmChart: 'charts/common-service'
   ]
 ]
 
 pipeline {
-  agent any
+  agent { label 'ec2-fleet' }
 
   options {
     buildDiscarder(logRotator(numToKeepStr: '20'))
@@ -40,18 +44,25 @@ pipeline {
 
   parameters {
     string(name: 'AWS_ACCOUNT_ID', defaultValue: '212351100079', description: 'AWS account ID that owns the ECR repositories.')
-    choice(name: 'DEPLOY_ENV', choices: ['jenkins-kind'], description: 'GitOps environment that Jenkins updates after pushing images.')
+    string(name: 'AWS_REGION', defaultValue: 'eu-central-1', description: 'AWS region for ECR and the future EKS deployment.')
     string(name: 'IMAGE_TAG', defaultValue: '', description: 'Optional image tag. Empty value becomes sha-<full git sha>.')
-    booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'Push built Docker images to ECR.')
-    booleanParam(name: 'UPDATE_GITOPS', defaultValue: true, description: 'Commit the new image repositories and tags to the GitOps repository.')
+
+    booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Run unit tests before building images.')
+    booleanParam(name: 'PUSH_IMAGES', defaultValue: true, description: 'Build and push Docker images to ECR.')
+
+    booleanParam(name: 'DEPLOY_TO_EKS', defaultValue: false, description: 'Deploy with Helm to an existing EKS cluster. Keep disabled until the cluster is ready.')
+    string(name: 'EKS_CLUSTER_NAME', defaultValue: 'TODO-existing-eks-cluster-name', description: 'Existing EKS cluster name. Placeholder until EKS is created by Terragrunt.')
+    string(name: 'K8S_NAMESPACE', defaultValue: 'microservices-dev', description: 'Kubernetes namespace for the deployment.')
+    string(name: 'DEPLOY_ENVIRONMENT', defaultValue: 'dev', description: 'Values directory under environments/<name> in the Helm repo.')
+    string(name: 'HELM_REPO_URL', defaultValue: 'https://github.com/artemnizamiiev-netizen/python-flask-microservices-gitops.git', description: 'Repository that contains Helm charts and environment values.')
+    string(name: 'HELM_REPO_BRANCH', defaultValue: 'main', description: 'Branch with Helm charts and values.')
+    string(name: 'HELM_REPO_CREDENTIALS_ID', defaultValue: 'github-repo-token', description: 'Optional Jenkins credential ID for cloning the Helm repo.')
+
+    booleanParam(name: 'RUN_SMOKE_TEST', defaultValue: false, description: 'Run a smoke check after deploy.')
+    string(name: 'SMOKE_TEST_URL', defaultValue: 'TODO-service-url/healthz', description: 'Placeholder URL for a post-deploy smoke check.')
   }
 
   environment {
-    AWS_REGION = 'eu-central-1'
-    AWS_ECR_CREDENTIALS_ID = 'aws-jenkins-ecr'
-    AWS_SESSION_TOKEN_CREDENTIALS_ID = 'aws-jenkins-session-token'
-    GITOPS_REPO_URL = 'https://github.com/artemnizamiiev-netizen/python-flask-microservices-gitops.git'
-    GITHUB_REPO_CREDENTIALS_ID = 'github-repo-token'
     DOCKER_BUILDKIT = '0'
   }
 
@@ -59,16 +70,41 @@ pipeline {
     stage('Prepare metadata') {
       steps {
         script {
+          env.AWS_REGION_EFFECTIVE = params.AWS_REGION.trim()
           env.FULL_SHA = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
           env.SHORT_SHA = sh(script: 'git rev-parse --short=12 HEAD', returnStdout: true).trim()
           env.IMAGE_TAG_EFFECTIVE = params.IMAGE_TAG?.trim() ? params.IMAGE_TAG.trim() : "sha-${env.FULL_SHA}"
-          env.ECR_REGISTRY = "${params.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION}.amazonaws.com"
+          env.ECR_REGISTRY = "${params.AWS_ACCOUNT_ID}.dkr.ecr.${env.AWS_REGION_EFFECTIVE}.amazonaws.com"
           currentBuild.displayName = "#${env.BUILD_NUMBER} ${env.SHORT_SHA}"
+          currentBuild.description = "tag=${env.IMAGE_TAG_EFFECTIVE}"
         }
       }
     }
 
+    stage('Verify agent') {
+      steps {
+        sh(
+          label: 'agent tools and identity',
+          script: '''
+            set -eu
+            hostname
+            whoami
+            docker --version
+            git --version
+            java -version
+            aws --version
+            python3 -c "import yaml; print('yaml ok')"
+            aws sts get-caller-identity
+            df -h / /tmp
+          '''
+        )
+      }
+    }
+
     stage('Unit tests') {
+      when {
+        expression { return params.RUN_TESTS }
+      }
       steps {
         sh 'mkdir -p reports'
         script {
@@ -100,25 +136,13 @@ pipeline {
         expression { return params.PUSH_IMAGES }
       }
       steps {
-        withCredentials([
-          usernamePassword(
-            credentialsId: env.AWS_ECR_CREDENTIALS_ID,
-            usernameVariable: 'AWS_ACCESS_KEY_ID',
-            passwordVariable: 'AWS_SECRET_ACCESS_KEY'
-          ),
-          string(
-            credentialsId: env.AWS_SESSION_TOKEN_CREDENTIALS_ID,
-            variable: 'AWS_SESSION_TOKEN'
-          )
-        ]) {
-          sh(
-            label: 'aws ecr login',
-            script: '''
-              aws ecr get-login-password --region "$AWS_REGION" \
-                | docker login --username AWS --password-stdin "$ECR_REGISTRY"
-            '''
-          )
-        }
+        sh(
+          label: 'aws ecr login via agent role',
+          script: '''
+            aws ecr get-login-password --region "$AWS_REGION_EFFECTIVE" \
+              | docker login --username AWS --password-stdin "$ECR_REGISTRY"
+          '''
+        )
       }
     }
 
@@ -135,6 +159,7 @@ pipeline {
                 label: "docker build/push ${service.name}",
                 script: """
                   docker build \
+                    --label org.opencontainers.image.revision=${env.FULL_SHA} \
                     -t ${image}:${env.IMAGE_TAG_EFFECTIVE} \
                     -t ${image}:latest \
                     ${service.context}
@@ -151,20 +176,51 @@ pipeline {
       }
     }
 
-    stage('Update GitOps repo') {
+    stage('Deploy to EKS') {
       when {
-        expression { return params.PUSH_IMAGES && params.UPDATE_GITOPS }
+        expression { return params.DEPLOY_TO_EKS }
       }
       steps {
-        withCredentials([
-          usernamePassword(
-            credentialsId: env.GITHUB_REPO_CREDENTIALS_ID,
-            usernameVariable: 'GIT_USERNAME',
-            passwordVariable: 'GIT_PASSWORD'
+        script {
+          if (!params.EKS_CLUSTER_NAME?.trim() || params.EKS_CLUSTER_NAME.startsWith('TODO')) {
+            error('EKS_CLUSTER_NAME is still a placeholder. Create/select the existing EKS cluster first.')
+          }
+
+          sh(
+            label: 'check deploy tools',
+            script: '''
+              command -v kubectl >/dev/null || { echo "kubectl is missing on the Jenkins agent. Add it to the agent bootstrap/AMI before enabling DEPLOY_TO_EKS."; exit 1; }
+              command -v helm >/dev/null || { echo "helm is missing on the Jenkins agent. Add it to the agent bootstrap/AMI before enabling DEPLOY_TO_EKS."; exit 1; }
+            '''
           )
-        ]) {
-          sh '''
-            cat > "$WORKSPACE/.git-askpass.sh" <<'EOF'
+
+          sh(
+            label: 'configure kubeconfig',
+            script: '''
+              aws eks update-kubeconfig \
+                --region "$AWS_REGION_EFFECTIVE" \
+                --name "$EKS_CLUSTER_NAME"
+
+              kubectl get nodes
+            '''
+          )
+
+          dir('helm-repo') {
+            deleteDir()
+          }
+
+          if (params.HELM_REPO_CREDENTIALS_ID?.trim()) {
+            withCredentials([
+              usernamePassword(
+                credentialsId: params.HELM_REPO_CREDENTIALS_ID.trim(),
+                usernameVariable: 'GIT_USERNAME',
+                passwordVariable: 'GIT_PASSWORD'
+              )
+            ]) {
+              sh(
+                label: 'clone Helm repo with credentials',
+                script: '''
+                  cat > "$WORKSPACE/.git-askpass.sh" <<'EOF'
 #!/bin/sh
 case "$1" in
   *Username*) echo "$GIT_USERNAME" ;;
@@ -172,49 +228,66 @@ case "$1" in
   *) echo "" ;;
 esac
 EOF
-            chmod 700 "$WORKSPACE/.git-askpass.sh"
-          '''
+                  chmod 700 "$WORKSPACE/.git-askpass.sh"
+                  trap 'rm -f "$WORKSPACE/.git-askpass.sh"' EXIT
 
-          dir('gitops') {
-            deleteDir()
-            sh '''
-              GIT_ASKPASS="$WORKSPACE/.git-askpass.sh" \
-                GIT_TERMINAL_PROMPT=0 \
-                git clone --branch main "$GITOPS_REPO_URL" .
-            '''
+                  GIT_ASKPASS="$WORKSPACE/.git-askpass.sh" \
+                    GIT_TERMINAL_PROMPT=0 \
+                    git clone --branch "$HELM_REPO_BRANCH" "$HELM_REPO_URL" helm-repo
+                '''
+              )
+            }
+          } else {
+            sh(
+              label: 'clone Helm repo',
+              script: 'git clone --branch "$HELM_REPO_BRANCH" "$HELM_REPO_URL" helm-repo'
+            )
           }
 
-          sh(
-            label: 'update GitOps image values',
-            script: '''
-              python3 .jenkins/scripts/update_gitops_tags.py \
-                --gitops-dir gitops \
-                --environment "$DEPLOY_ENV" \
-                --registry "$ECR_REGISTRY" \
-                --tag "$IMAGE_TAG_EFFECTIVE"
-            '''
-          )
+          def deployStages = SERVICES.collectEntries { service ->
+            ["helm / ${service.name}": {
+              def image = "${env.ECR_REGISTRY}/${service.repository}"
+              def valuesFile = "helm-repo/environments/${params.DEPLOY_ENVIRONMENT.trim()}/${service.name}/values.yaml"
+              sh(
+                label: "helm upgrade ${service.name}",
+                script: """
+                  test -f ${valuesFile}
 
-          dir('gitops') {
-            sh '''
-              git config user.name "jenkins[bot]"
-              git config user.email "jenkins[bot]@users.noreply.github.com"
+                  helm upgrade --install ${service.name} helm-repo/${service.helmChart} \
+                    --namespace "$K8S_NAMESPACE" \
+                    --create-namespace \
+                    -f ${valuesFile} \
+                    --set image.repository=${image} \
+                    --set image.tag=${env.IMAGE_TAG_EFFECTIVE} \
+                    --wait \
+                    --timeout 5m
+                """
+              )
+            }]
+          }
 
-              git add "environments/${DEPLOY_ENV}"/*/values.yaml
+          parallel deployStages
+        }
+      }
+    }
 
-              if git diff --cached --quiet; then
-                echo "No GitOps changes to commit."
-              else
-                git commit -m "chore(${DEPLOY_ENV}): deploy ${SHORT_SHA}"
-                GIT_ASKPASS="$WORKSPACE/.git-askpass.sh" \
-                  GIT_TERMINAL_PROMPT=0 \
-                  git push origin HEAD:main
-              fi
-
-              rm -f "$WORKSPACE/.git-askpass.sh"
-            '''
+    stage('Smoke test') {
+      when {
+        expression { return params.DEPLOY_TO_EKS && params.RUN_SMOKE_TEST }
+      }
+      steps {
+        script {
+          if (!params.SMOKE_TEST_URL?.trim() || params.SMOKE_TEST_URL.startsWith('TODO')) {
+            error('SMOKE_TEST_URL is still a placeholder.')
           }
         }
+
+        sh(
+          label: 'smoke check',
+          script: '''
+            curl -fsS "$SMOKE_TEST_URL"
+          '''
+        )
       }
     }
   }
